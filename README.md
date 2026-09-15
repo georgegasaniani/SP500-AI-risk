@@ -10,7 +10,6 @@ BI report.
 
 Period covered: January 2015 to September 2026, which is 2,939 trading days.
 
----
 
 ## What I found
 
@@ -88,7 +87,15 @@ principal component analysis for the factor structure, Euler decomposition for
 splitting index risk between constituents, Extreme Value Theory for the tail,
 and rolling out-of-sample backtesting to check the VaR model actually worked.
 
----
+## The dashboard
+
+A five-page Power BI report covering the findings and the methods behind them.
+<img width="2239" height="1240" alt="Screenshot (64)" src="https://github.com/user-attachments/assets/d727f1a1-3304-4503-b072-6650ce89b0f9" />
+<img width="2238" height="1253" alt="Screenshot (65)" src="https://github.com/user-attachments/assets/b1a0bbbe-05a5-4d23-80f3-b725e1459aed" />
+<img width="2237" height="1242" alt="Screenshot (66)" src="https://github.com/user-attachments/assets/61f5f90d-fd4d-4448-87f4-3ac298bdb097" />
+<img width="2228" height="1235" alt="Screenshot (69)" src="https://github.com/user-attachments/assets/006a519f-0e9d-4da1-850b-19871c44aad3" />
+<img width="2240" height="1242" alt="Screenshot (70)" src="https://github.com/user-attachments/assets/908e4472-4975-4533-a9c1-f2016278d489" />
+
 
 ## Does it work?
 
