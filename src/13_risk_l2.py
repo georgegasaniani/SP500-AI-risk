@@ -4,7 +4,7 @@ import pandas as pd
 from arch import arch_model
 
 con=duckdb.connect("data/sp500.duckdb")
-idx=con.sql("SELECT date, ret FROM index_returns WHERE ret IS NOT NULL ORDER BY date").df()
+idx=con.sql("SELECT date, ret FROM index_returns WHERE ret IS NOT NULL AND date >= '2015-01-01' ORDER BY date").df()
 idx["date"]=pd.to_datetime(idx["date"])
 r=idx.set_index("date")["ret"]*100
 

@@ -2,7 +2,7 @@ import duckdb
 import pandas as pd
 
 con=duckdb.connect("data/sp500.duckdb")
-manual=pd.read_csv("data/manual_shares.csv")
+manual=pd.read_csv("reference/manual_shares.csv")  # hand-verified; 09 only drafts it
 manual["shares"]=manual["shares"].astype(str).str.replace(",","").astype(float)
 manual["filed"] = pd.to_datetime(manual["date"]).fillna(pd.Timestamp("2015-01-01"))
 manual["date"] = manual["filed"]

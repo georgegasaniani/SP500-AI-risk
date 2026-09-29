@@ -4,7 +4,7 @@ import pandas as pd
 from scipy import stats
 
 con = duckdb.connect("data/sp500.duckdb")
-r = con.sql("SELECT ret FROM index_returns WHERE ret IS NOT NULL ORDER BY date").df()["ret"].values
+r = con.sql("SELECT ret FROM index_returns WHERE ret IS NOT NULL AND date >= '2015-01-01' ORDER BY date").df()["ret"].values
 
 losses = -r                                   # work with losses as positive numbers
 u = np.percentile(losses, 95)                 # threshold: worst 5% of days

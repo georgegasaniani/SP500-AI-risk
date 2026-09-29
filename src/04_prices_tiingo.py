@@ -5,7 +5,7 @@ import duckdb
 import pandas as pd
 import requests
 
-TOKEN=os.environ["TIINGO_API_KEY"]
+TOKEN=os.environ.get("TIINGO_API_KEY")  # only needed to download missing files
 
 tickers=pd.read_csv("data/tiingo_list.csv")["ticker"].tolist()
 out=Path("data/raw/tiingo")
@@ -17,6 +17,9 @@ failed = []
 for n, t in enumerate(tickers,1):
     path = out / f"{t}.parquet"
     if path.exists():
+        continue
+    if not TOKEN:
+        failed.append(t)
         continue
     r=requests.get(f"https://api.tiingo.com/tiingo/daily/{t}/prices",
                    params={"startDate":"1998-01-01","token":TOKEN})

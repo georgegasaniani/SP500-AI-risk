@@ -4,7 +4,7 @@ import pandas as pd
 from scipy import stats
 
 con = duckdb.connect("data/sp500.duckdb")
-r = con.sql("SELECT ret FROM index_returns WHERE ret IS NOT NULL").df()["ret"].values
+r = con.sql("SELECT ret FROM index_returns WHERE ret IS NOT NULL AND date >= '2015-01-01'").df()["ret"].values
 sd = r.std()
 
 # Fat tails: observed vs normal-model expectation

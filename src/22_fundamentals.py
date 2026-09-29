@@ -21,11 +21,27 @@ FIELDS = {
 }
 
 con = duckdb.connect("data/sp500.duckdb")
-r = requests.get("https://www.sec.gov/files/company_tickers.json", headers=HEADERS)
-lookup = {v["ticker"]: str(v["cik_str"]).zfill(10) for v in r.json().values()}
 
 cache = Path("data/raw/fundamentals.parquet")
-if not cache.exists():
+fresh = sorted(Path("data/raw/sec").glob("companyfacts_*.json"))
+if fresh:
+    # facts downloaded by 00_fetch_data.py: rebuild the cache from them
+    import json
+    rows = []
+    for p in fresh:
+        t = p.stem.split("_", 1)[1]
+        facts = json.loads(p.read_text(encoding="utf-8")).get("facts", {}).get("us-gaap", {})
+        for metric, tags in FIELDS.items():
+            for tag in tags:
+                for u in facts.get(tag, {}).get("units", {}).get("USD", []):
+                    if u.get("form") in ("10-Q", "10-K") and u.get("start"):
+                        rows.append({"ticker": t, "metric": metric, "tag": tag, "start": u["start"], "end": u["end"],
+                                     "val": u["val"], "filed": u["filed"], "form": u["form"]})
+    df = pd.DataFrame(rows)
+    df.to_parquet(cache, index=False)
+elif not cache.exists():
+    r = requests.get("https://www.sec.gov/files/company_tickers.json", headers=HEADERS)
+    lookup = {v["ticker"]: str(v["cik_str"]).zfill(10) for v in r.json().values()}
     rows = []
     for t in AI:
         cik = lookup[t]
@@ -40,11 +56,6 @@ if not cache.exists():
                         rows.append({"ticker": t, "metric": metric, "tag": tag,
                                      "start": u["start"], "end": u["end"],
                                      "val": u["val"], "filed": u["filed"], "form": u["form"]})
-            for u in recs:
-                if u.get("form") in ("10-Q", "10-K") and u.get("start"):
-                    rows.append({"ticker": t, "metric": metric, "tag": tag,
-                                 "start": u["start"], "end": u["end"],
-                                 "val": u["val"], "filed": u["filed"], "form": u["form"]})
         print(f"{t}: {len([r for r in rows if r['ticker'] == t])} records")
 
     df = pd.DataFrame(rows)
@@ -63,10 +74,13 @@ df["start"] = pd.to_datetime(df["start"])
 df["end"] = pd.to_datetime(df["end"])
 df["filed"] = pd.to_datetime(df["filed"])
 df["days"] = (df["end"] - df["start"]).dt.days
+# Several tags can describe the same line (e.g. two revenue tags). Prefer the first
+# listed in FIELDS for every period, so one company's series never mixes definitions.
+df["tag_rank"] = [FIELDS[m].index(t) if t in FIELDS[m] else 99 for m, t in zip(df["metric"], df["tag"])]
 
 def clean(lo, hi):
     s = df[(df["days"] >= lo) & (df["days"] <= hi)].copy()
-    return (s.sort_values("filed")
+    return (s.sort_values(["tag_rank", "filed"])
              .drop_duplicates(subset=["ticker", "metric", "end"], keep="first"))
 
 
@@ -86,7 +100,7 @@ qi = qi[qi["metric"].isin(INCOME)]
 
 
 cum = df[df["metric"].isin(CASH)].copy()
-cum = (cum.sort_values("filed")
+cum = (cum.sort_values(["tag_rank", "filed"])
           .drop_duplicates(subset=["ticker", "metric", "start", "end"], keep="first"))
 cum = cum[cum["days"] <= 380]
 cum = cum.sort_values(["ticker", "metric", "start", "end"])

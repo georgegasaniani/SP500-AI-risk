@@ -49,3 +49,17 @@ print(f"\nDone; {len(got)} tickers downloaded, {len(failed)} failed")
 
 funds = con.sql("SELECT DISTINCT ticker FROM prices_yf WHERE capital_gains > 0").df()
 print("Tickers with capital gains (probably funds, not companies):", funds["ticker"].tolist())
+
+# Fresh Yahoo batches written by 00_fetch_data.py (current members and benchmarks,
+# up to the latest trading day). Each run of 00 writes a new dated set; for every
+# ticker keep only the rows from its newest file.
+if list(Path("data/raw/yf2").glob("*.parquet")):
+    con.execute("""
+        CREATE OR REPLACE TABLE prices_yf2 AS
+        WITH r AS (SELECT *, filename FROM read_parquet('data/raw/yf2/*.parquet',
+                                                        union_by_name=True, filename=true)),
+             newest AS (SELECT ticker, MAX(filename) AS f FROM r GROUP BY 1)
+        SELECT r.* EXCLUDE (filename) FROM r JOIN newest n ON r.ticker = n.ticker AND r.filename = n.f
+    """)
+    n = con.sql("SELECT COUNT(DISTINCT ticker) AS t, MAX(date) AS d FROM prices_yf2").df().iloc[0]
+    print(f"fresh Yahoo prices: {n.t} tickers, up to {n.d}")

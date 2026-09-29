@@ -1,7 +1,14 @@
-"""Run the full pipeline in order.
+"""Run the whole analysis in order, from the raw data in data/raw.
 
-Ordering matters: 10_merge_manual_shares must run after 07_shares (which
-rebuilds the shares table from scratch) and before 08_concentration.
+Downloads are not part of this script: run src/00_fetch_data.py first (update.py does
+both). Steps 02, 04 and 07 download only files that are missing from data/raw.
+
+Order notes:
+  - 05 (fund holdings) must run before 06 (prices): 06 checks every price against the
+    fund's recorded price.
+  - 10 must run after 07 (which rebuilds the SEC share table) and before 08.
+  - 09_manual_shares.py is not part of the run: it only drafted reference/manual_shares.csv,
+    which was then checked by hand. Re-running it would overwrite that work.
 """
 import subprocess
 import sys
@@ -11,10 +18,11 @@ from pathlib import Path
 STEPS = [
     "01_membership.py",
     "02_prices_yf.py",
+    "03_tiingo_list.py",
     "04_prices_tiingo.py",
+    "05_holdings.py",
     "06_merge_prices.py",
     "07_shares.py",
-    "09_manual_shares.py",
     "10_merge_manual_shares.py",
     "08_concentration.py",
     "11_validate_spy.py",
@@ -34,15 +42,15 @@ STEPS = [
     "26_export_summary.py",
     "27_export_methodology.py",
     "24_export_for_bi.py",
+    "28_charts.py",
 ]
 
+
 def main():
+    Path("data/bi").mkdir(parents=True, exist_ok=True)
     start = time.time()
     for i, step in enumerate(STEPS, 1):
         path = Path("src") / step
-        if not path.exists():
-            print(f"[{i}/{len(STEPS)}] SKIP {step} (not found)")
-            continue
         print(f"\n[{i}/{len(STEPS)}] {step}")
         t = time.time()
         r = subprocess.run([sys.executable, str(path)])
@@ -51,6 +59,7 @@ def main():
             sys.exit(1)
         print(f"  done in {time.time() - t:.0f}s")
     print(f"\nPipeline complete in {(time.time() - start) / 60:.1f} minutes")
+
 
 if __name__ == "__main__":
     main()
