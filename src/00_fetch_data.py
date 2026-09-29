@@ -323,8 +323,9 @@ def fetch_sec():
     d = RAW / "sec"
     d.mkdir(parents=True, exist_ok=True)
     r = requests.get("https://www.sec.gov/files/company_tickers.json", headers=SEC_HEADERS, timeout=60)
-    (d / "company_tickers.json").write_text(r.text, encoding="utf-8")
+    r.raise_for_status()                       # an error page must not replace the saved file
     lookup = {v["ticker"]: str(v["cik_str"]).zfill(10) for v in r.json().values()}
+    (d / "company_tickers.json").write_text(r.text, encoding="utf-8")
     for t in AI:
         cik = lookup.get(t)
         if not cik:
@@ -332,6 +333,12 @@ def fetch_sec():
             continue
         rr = requests.get(f"https://data.sec.gov/api/xbrl/companyfacts/CIK{cik}.json",
                           headers=SEC_HEADERS, timeout=120)
+        try:
+            rr.raise_for_status()
+            rr.json()
+        except Exception as e:
+            print(f"    SEC: {t} failed ({e!r}), keeping the old file")
+            continue
         (d / f"companyfacts_{t}.json").write_text(rr.text, encoding="utf-8")
         time.sleep(0.2)
     print(f"  SEC: company tickers + facts for {len(AI)} AI-group companies saved")
