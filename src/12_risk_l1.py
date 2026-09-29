@@ -5,7 +5,7 @@ from scipy import stats
 
 
 con=duckdb.connect("data/sp500.duckdb")
-idx=con.sql("SELECT date, ret FROM index_returns WHERE ret IS NOT NULL ORDER BY date").df()
+idx=con.sql("SELECT date, ret FROM index_returns WHERE ret IS NOT NULL AND date >= '2015-01-01' ORDER BY date").df()
 r=idx["ret"].values
 
 print(f"days: {len(r)}")

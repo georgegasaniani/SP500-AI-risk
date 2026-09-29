@@ -35,7 +35,7 @@ print((g * 100).round(1).to_string())
 
 
 h = (A[A["ticker"].isin(HYPER)].groupby("year")[["revenue", "capex", "op_cash_flow", "fcf"]]
-       .sum().replace(0, np.nan).dropna())
+       .sum(min_count=len(HYPER)).dropna())       # all four companies, or no total
 h["capex_pct"] = 100 * h["capex"] / h["revenue"]
 h["fcf_margin"] = 100 * h["fcf"] / h["revenue"]
 print("\nHyperscaler group (USD bn, last 10 years):")
@@ -43,10 +43,27 @@ print(pd.concat([(h[["revenue", "capex", "op_cash_flow", "fcf"]] / 1e9).round(0)
                  h[["capex_pct", "fcf_margin"]].round(1)], axis=1).tail(10).to_string())
 
 
-nv = A[A["ticker"] == "NVDA"].set_index("year")["revenue"]
-comp = pd.DataFrame({"hyper_capex": h["capex"], "nvda_revenue": nv}).dropna()
+# Nvidia's fiscal year ends in late January, Microsoft's in June. Comparing "years" by
+# the calendar year of each fiscal year-end put Nvidia a year behind the others. Build
+# calendar-year totals from quarters instead: a quarter belongs to the calendar year that
+# contains most of it (its end date minus 45 days).
+Qc = Q.copy()
+Qc["cal_year"] = (pd.to_datetime(Qc["end"]) - pd.Timedelta(days=45)).dt.year
+cal = (Qc.groupby(["ticker", "cal_year"])
+         .agg(quarters=("end", "count"),
+              revenue=("revenue", lambda s: s.sum(min_count=4)),
+              capex=("capex", lambda s: s.sum(min_count=4)))
+         .reset_index())
+cal = cal[cal["quarters"] == 4]
+hyp = cal[cal["ticker"].isin(HYPER)].groupby("cal_year").agg(
+    companies=("ticker", "nunique"), hyper_capex=("capex", lambda s: s.sum(min_count=len(HYPER))))
+hyp = hyp[hyp["companies"] == len(HYPER)]
+nv = cal[cal["ticker"] == "NVDA"].set_index("cal_year")["revenue"]
+comp = pd.DataFrame({"hyper_capex": hyp["hyper_capex"], "nvda_revenue": nv}).dropna()
 comp["ratio"] = comp["nvda_revenue"] / comp["hyper_capex"]
-print("\nHyperscaler capex vs Nvidia revenue (USD bn):")
+link = comp.rename(columns={"ratio": "nvda_share_of_capex"}).rename_axis("year").reset_index()
+con.execute("CREATE OR REPLACE TABLE capex_link AS SELECT * FROM link")
+print("\nHyperscaler capex vs Nvidia revenue, calendar years (USD bn):")
 print(pd.concat([(comp[["hyper_capex", "nvda_revenue"]] / 1e9).round(0),
                  comp[["ratio"]].round(3)], axis=1).tail(8).to_string())
 
@@ -86,7 +103,7 @@ A = con.sql("SELECT * FROM fundamentals_annual").df()
 Q = con.sql("SELECT * FROM fundamentals_quarterly").df()
 
 h = (A[A["ticker"].isin(HYPER)].groupby("year")[["revenue", "capex", "depreciation", "op_cash_flow"]]
-       .sum().replace(0, np.nan).dropna())
+       .sum(min_count=len(HYPER)).dropna())
 h["dep_pct_rev"] = 100 * h["depreciation"] / h["revenue"]
 h["capex_pct_rev"] = 100 * h["capex"] / h["revenue"]
 h["dep_over_capex"] = h["depreciation"] / h["capex"]

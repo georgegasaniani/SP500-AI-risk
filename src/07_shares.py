@@ -9,12 +9,13 @@ HEADERS={"User-Agent": "Giorgos george.gasaniani@gmail.com"}
 con=duckdb.connect("data/sp500.duckdb")
 tickers=con.sql("SELECT DISTINCT ticker FROM prices ORDER BY ticker").df()["ticker"].tolist()
 
-r=requests.get("https://www.sec.gov/files/company_tickers.json",headers=HEADERS)
-lookup={v["ticker"]: str(v["cik_str"]).zfill(10) for v in r.json().values()}
-matched={t: lookup[t] for t in tickers if t in lookup}
-print(f"{len(matched)} of {len(tickers)} tickers mathed to a CIK")
-
 from pathlib import Path
+
+if not Path("data/raw/shares.parquet").exists():
+    r=requests.get("https://www.sec.gov/files/company_tickers.json",headers=HEADERS)
+    lookup={v["ticker"]: str(v["cik_str"]).zfill(10) for v in r.json().values()}
+    matched={t: lookup[t] for t in tickers if t in lookup}
+    print(f"{len(matched)} of {len(tickers)} tickers matched to a CIK")
 
 if not Path("data/raw/shares.parquet").exists():
     rows = []

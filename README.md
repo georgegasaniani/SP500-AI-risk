@@ -5,63 +5,101 @@ depends on a handful of AI companies, and what would it cost you if those
 companies fell hard?
 
 I built the dataset from scratch to find out. This repository has the whole
-pipeline: index membership, prices, SEC filings, the risk models, and a Power
-BI report.
+pipeline: the real index weights, prices, SEC filings, the risk models, and a
+Power BI report, plus one command that updates all of it.
 
-Period covered: January 2015 to September 2026, which is 2,939 trading days.
+Index weights: every trading day from November 2006 to September 2026, from the
+holdings of an index fund that fully replicates the S&P 500. Risk models:
+January 2015 to September 2026, 2,951 trading days.
+
+In September 2026 I audited the first version of this project and found that
+it had silently left out many companies, among them Meta for seven years. The
+numbers below are the corrected ones; [`docs/audit.md`](docs/audit.md) lists
+every problem and how much it moved the results.
+
+<!-- numbers:start -->
+*Updated 29 Sep 2026 by `update.py`; index holdings to 25 Sep 2026.*
+
+| | Sep 2026 | Jan 2015 |
+|---|---|---|
+| Ten largest holdings, share of the index | 38.9% | 17.5% |
+| Effective number of stocks | 44 | 148 |
+| AI group, share of the index | 29.9% | 5.7% |
+| Ten largest holdings, share of risk (past 252 trading days) | 53.3% | 16.5% |
+| AI group, share of risk (past 252 trading days) | 45.5% | 7.3% |
+
+A 25% fall in the AI group costs an index investor about 16.4% (17.1% with betas from turbulent days); the weights alone suggest 7.5%.
+Since January 2015: annualised volatility 17.6%, one-day 97.5% VaR 2.28%, Expected Shortfall 3.45% (S&P 500 total return index).
+<!-- numbers:end -->
 
 
 ## What I found
 
-**The index is about half as diversified as it was in 2015.** The ten largest
-companies have gone from 20.6% of the index to 38.2%. Measured by the effective
-number of stocks, which asks how many equally weighted holdings would give the
-same concentration, it has fallen from 108 to 47.
+**The index is less than a third as diversified as it was in 2015.** The ten
+largest holdings have gone from 17.3% of the index (2015 average) to 38.9%.
+Measured by the effective number of stocks, which asks how many equally
+weighted holdings would give the same concentration, it has fallen from 145 to
+44.
 
-**Those ten companies now carry 55% of the index's risk on 38% of its weight,
-and that gap is new.** Until 2017 they contributed risk roughly in proportion
-to their size. The gap opened after that and has widened since. This is the
-finding I did not expect, and it only shows up if you compute the decomposition
-rolling through time rather than as a snapshot.
+![Concentration](docs/charts/concentration.png)
+
+**Those ten holdings now carry 53% of the index's risk on 39% of its weight,
+and that gap is new.** Until 2017 they contributed risk roughly in proportion to
+their size, or slightly less. The gap opened in 2018 and has widened since
+2022. It only shows up if you compute the decomposition rolling through time
+rather than as a snapshot.
+
+![Risk vs weight](docs/charts/risk_vs_weight.png)
 
 **The risk is concentrated in semiconductors, not in large companies
-generally.** Nvidia, Broadcom, Micron and AMD are about 13% of the index and
-27% of its risk. Apple and Microsoft, the two largest non-chip holdings, are
-essentially risk-neutral relative to their weight.
+generally.** Nvidia, Broadcom, Micron and AMD are 14% of the index and 29% of
+its risk (on returns since 2024); Nvidia alone is 8% of the weight and 16% of the risk. Apple and
+Microsoft, the two largest non-chip holdings, carry slightly less risk than
+their weight.
 
-**A 25% fall in the AI group would cost an index investor 16 to 19%**, not the
-7.6% the weights suggest, because the spillover to everything else is larger
-than the direct hit. Defensive holdings lose most of their defensiveness on
-exactly the days you would want them: Johnson & Johnson's sensitivity to the AI
-group doubles on the most turbulent 10% of days.
+![AI group](docs/charts/ai_group.png)
 
-**Today's weighting costs about 2.9 percentage points of annualised
-volatility** compared with an equal-weighted version of the same 500 companies.
-Same companies, same return behaviour, different weights.
+**A 25% fall in the AI group would cost an index investor 16 to 17%**, not the
+7.5% the weights suggest, because the spillover to everything else is larger
+than the direct hit. Defensive holdings get more exposed exactly when AI stocks
+move sharply: Johnson & Johnson's sensitivity to the AI group rises by about
+40% on the days the group moves most.
 
-**On the fundamentals, capital spending is growing two to four times faster
-than revenue** at Microsoft, Amazon, Alphabet and Meta, and roughly three
-quarters of that cost has not yet reached their reported profits. But they are
-funding it from their own cash flow rather than debt, which is a real
-difference from the dot-com telecoms. Nvidia's revenue now equals a growing
-share of what these four spend, which is the channel connecting the
-fundamentals to the risk findings.
+**Today's weighting costs about 3.3 percentage points of annualised
+volatility** compared with an equal-weighted version of the same 500 companies
+(17.7% against 14.4%, on 2024 to 2026 returns). Same companies, same return
+behaviour, different weights.
+
+**On the fundamentals, capital spending is growing much faster than revenue.**
+Over the last three years Microsoft's capex grew 60% a year against revenue
+growth of 16%, Alphabet's 43% against 13%, Amazon's 28% against 12%, and Meta's
+30% against 20%. Depreciation, the part of that spending that reaches reported
+profits each year, is only 29% of this year's capex, so most of the cost has
+not hit profits yet. As a group they still pay for it from their own cash flow
+($150bn of free cash flow over the last four quarters), though Amazon's is now
+negative. Nvidia's revenue equals 57% of what these four spent in 2025, up from
+about a fifth before 2023, which is the channel connecting the fundamentals to
+the risk findings.
 
 ---
 
 ## How it was built
 
 ```
+update.py                 one command: download what is new, rerun everything, redraw
+                          the charts, update the numbers at the top of this README
+run_all.py                the analysis only, from the raw files to data/bi/*.csv
 src/
-  01_membership.py          index constituents, expanded to every trading day
+  00_fetch_data.py          downloads: fund holdings, Yahoo prices, SEC facts, membership
+  01_membership.py          index membership history (fja05680/sp500), a cross-check
   02_prices_yf.py           daily prices from yfinance, resumable in batches
   04_prices_tiingo.py       prices from Tiingo for the tickers yfinance missed
-  06_merge_prices.py        one price table: raw prices and daily returns
+  05_holdings.py            the real index weights, from the fund's daily holdings
+  06_merge_prices.py        one checked price source per company and day
   07_shares.py              shares outstanding from the SEC XBRL API
-  09_manual_shares.py       cover-page share counts for companies the API lacks
-  10_merge_manual_shares.py folds those in
-  08_concentration.py       market caps, weights, concentration measures
-  11_validate_spy.py        rebuilt index return vs SPY, year by year
+  10_merge_manual_shares.py cover-page share counts for companies the API lacks
+  08_concentration.py       weights and concentration: real, and rebuilt from SEC counts
+  11_validate_spy.py        index returns, and the checks against the real index
   12_risk_l1.py             normality tests, tail counts
   13_risk_l2.py             EWMA and GARCH(1,1)-t volatility
   14_risk_pca.py            PCA on the AI group, raw and market-adjusted
@@ -76,20 +114,28 @@ src/
   23_capex_analysis.py      capex vs revenue, depreciation gap
   25_rolling_risk.py        risk decomposition rolling through time
   24_export_for_bi.py       CSV exports for the Power BI report
+  28_charts.py              the charts in this README
+reference/
+  ticker_aliases.csv        renamed companies and iShares ticker formats (FB -> META)
+  manual_shares.csv         share counts checked by hand against the filings
 ```
 
 Python, SQL and DuckDB. Everything is stored in a single DuckDB file and
-queried with SQL. Prices come from yfinance and Tiingo, company data from the
-SEC's XBRL API, index membership from the fja05680/sp500 dataset.
+queried with SQL. The index weights come from the daily holdings of the iShares
+Core S&P 500 ETF (IVV), which holds every member of the index at its index
+weight. Prices come from Yahoo Finance and Tiingo, company data from the SEC's
+XBRL API. Index-level risk uses the official S&P 500 Total Return index.
 
 Methods: GARCH(1,1) with Student-t errors for conditional volatility,
 principal component analysis for the factor structure, Euler decomposition for
 splitting index risk between constituents, Extreme Value Theory for the tail,
-and rolling out-of-sample backtesting to check the VaR model actually worked.
+and rolling out-of-sample backtesting to check the VaR model.
 
 ## The dashboard
 
 A five-page Power BI report covering the findings and the methods behind them.
+It reads the CSV files in `data/bi`; after running `update.py`, open it and
+press Refresh. (The screenshots are from the first version.)
 <img width="2239" height="1240" alt="Screenshot (64)" src="https://github.com/user-attachments/assets/d727f1a1-3304-4503-b072-6650ce89b0f9" />
 <img width="2238" height="1253" alt="Screenshot (65)" src="https://github.com/user-attachments/assets/b1a0bbbe-05a5-4d23-80f3-b725e1459aed" />
 <img width="2237" height="1242" alt="Screenshot (66)" src="https://github.com/user-attachments/assets/61f5f90d-fd4d-4448-87f4-3ac298bdb097" />
@@ -99,34 +145,43 @@ A five-page Power BI report covering the findings and the methods behind them.
 
 ## Does it work?
 
-The most important check is whether the rebuilt index matches reality. I
-compared its total return against SPY, year by year.
+The most important check is whether the index I work with matches the real
+one. Each day I take the previous day's weights, multiply by each company's
+return that day, and compare with the official S&P 500 Total Return index.
 
-| Year | Mine | SPY | Difference |
+| Year | S&P 500 TR | Mine | Difference |
 |---|---|---|---|
-| 2015 | 1.84% | 1.23% | +0.61 |
-| 2016 | 12.83% | 12.00% | +0.83 |
-| 2017 | 23.34% | 21.71% | +1.63 |
-| 2018 | -3.16% | -4.57% | +1.41 |
-| 2019 | 31.66% | 31.22% | +0.44 |
-| 2020 | 20.75% | 18.33% | +2.41 |
-| 2021 | 28.21% | 28.73% | -0.51 |
-| 2022 | -18.31% | -18.18% | -0.14 |
-| 2023 | 27.56% | 26.18% | +1.38 |
-| 2024 | 26.23% | 24.89% | +1.34 |
-| 2025 | 18.09% | 17.72% | +0.37 |
-| 2026 | 11.77% | 12.78% | -1.01 |
+| 2015 | 1.38% | 1.32% | -0.06 |
+| 2016 | 11.96% | 12.10% | +0.14 |
+| 2017 | 21.83% | 22.07% | +0.24 |
+| 2018 | -4.38% | -4.56% | -0.17 |
+| 2019 | 31.49% | 31.41% | -0.08 |
+| 2020 | 18.40% | 18.32% | -0.08 |
+| 2021 | 28.71% | 28.70% | -0.00 |
+| 2022 | -18.11% | -18.11% | -0.00 |
+| 2023 | 26.29% | 26.33% | +0.04 |
+| 2024 | 25.02% | 25.02% | -0.00 |
+| 2025 | 17.88% | 17.86% | -0.02 |
+| 2026 | 14.09% | 14.09% | -0.00 |
 
-Every year within 2.5 percentage points, most within 1.5. The small positive
-bias has a known cause: I weight by total shares outstanding while the real
-index uses free float, which gives slightly more weight to companies with
-concentrated ownership.
+Every year within a quarter of a percentage point, and within 0.04 points since
+2021. The larger differences before 2019 come from gaps: the first half of
+2017, when the fund's archive has no files and I move the last known weights
+with each company's return, and days when a company's return is missing. The first version, built from SEC share counts,
+was off by up to 2.4 points a year.
 
-The VaR model was also tested properly. Refitting on a rolling 252-day window
-and forecasting one day ahead, so no prediction uses information that did not
-exist at the time, it passes the Kupiec test at 97.5%, 99% and 99.5% over 1,939
-out-of-sample days. It is mildly optimistic at every level, with a few more
-exceptions than expected, but not enough to fail.
+I also had the headline numbers recomputed by a separate script written
+without access to this pipeline or its results, straight from the raw files.
+Every number agreed (details in [`docs/audit.md`](docs/audit.md)).
+
+The VaR model does **not** pass its backtest. Refitting a GARCH(1,1)-t model
+every 20 days on the previous 1,000 days and forecasting one day ahead, so no
+prediction uses information that did not exist at the time, it has 3.5%
+exceptions at the 97.5% level where 2.5% are expected, and fails the Kupiec
+test at 97.5%, 99% and 99.5%. The exceptions are not bunched together
+(Christoffersen passes), and the last 250 days are in the Basel green zone. The
+first version reported a pass, but its backtest was not running the GARCH
+forecast it described.
 
 ---
 
@@ -138,15 +193,14 @@ it is the part I learned the most from.
 **Ticker symbols get recycled.** When a company is acquired or goes bankrupt,
 its symbol is freed up and can be reassigned years later. So asking for a
 company that left the index in 1999 can return prices belonging to an unrelated
-business. I found 185 of these by comparing each ticker's index membership
-start against the start of its price history.
+business. Every price is now checked against the fund's own recorded price on
+each day the company was held.
 
 **My two price sources meant opposite things by the word "close".** Tiingo
 gives the raw traded price; yfinance gives a price already adjusted for splits.
 Merging them without noticing would have put half the companies on a different
 scale with no error anywhere. I rebuilt the raw price by multiplying each
-yfinance price by every split that happened afterwards, and checked it against
-dates I could verify by hand.
+yfinance price by every split that happened afterwards.
 
 **One company filed a share count that was wrong by a factor of a million.**
 Arthur J. Gallagher reported 189 trillion shares for two quarters in 2020, with
@@ -159,12 +213,16 @@ share counts, because a 10-for-1 split looks identical to a filing error if you
 compare against a long-run median. It took three attempts to write a filter
 that caught real errors and left real splits alone.
 
-**Twenty-three current index members have no structured share data after about
-2010**, including Visa, Mastercard, Berkshire and Nike. I checked Visa directly:
-it has two records, from 2009 and 2010, and no alternative field anywhere in
-its filings. I filled these in from the filings themselves and verified each
-one by multiplying by the current price to check the result was a plausible
-company size.
+**And the biggest one I only found in the audit: companies that vanished
+without an error.** I matched tickers to SEC company records using the SEC's
+list of today's tickers. Every company that later changed its ticker,
+re-registered or was acquired got no share count and silently dropped out of
+my index: Facebook for seven years, Exxon Mobil until August 2026, Disney
+before 2019, and about 200 others. In 2015 almost a third of the index's
+members were missing. The fix was to stop rebuilding the weights and take the real ones
+from an index fund's published holdings. The SEC rebuild stays in the
+repository as a cross-check; from 2024 onwards it comes within a point of the
+real weights.
 
 The thing I keep coming back to is that the dangerous errors are not the ones
 that crash. They are the ones that produce plausible-looking numbers.
@@ -173,29 +231,27 @@ that crash. They are the ones that produce plausible-looking numbers.
 
 ## What I would not claim
 
-**I weight by total shares, not free float.** The real index excludes shares
-held by insiders and founders. Float data is not freely available. This is the
-main reason my index runs slightly ahead of SPY each year.
+**The weights are one fund's holdings, not S&P's own index file.** IVV holds
+every member at its index weight, and weights taken from its daily holdings
+reproduce the index's return with a tracking error of 0.02% a year since 2021,
+but it is a fund, not the index.
 
-**The analysis starts in 2015.** Share-count coverage falls to 52.5% in 1998,
-and before 2009 every market cap would be guessed. I wanted the dot-com
-comparison and I do not have it.
+**Before May 2012 the fund's archive has month-end holdings only**, and there
+are no files at all from January to early July 2017. Days in between are
+estimated by moving the last known weights with each company's daily return.
+Before 2012 returns exist for 70 to 83% of the index (companies that left
+before then are missing from the price sources), so the concentration history
+before 2012 is approximate. The risk analysis starts in 2015.
 
-**Fifteen companies use a single current share count** held constant across the
-whole period. I measured what this costs: 0.4 to 1.9 percentage points on the
-top-ten figure, with the trend unaffected.
+**I still do not have the dot-com comparison.** The fund's archive starts in
+November 2006.
 
-**Alphabet's pre-2022 share count is today's figure divided by twenty**, the
-split ratio, rather than the actual historical count.
+**The VaR model is optimistic**, as the backtest shows. VaR and Expected
+Shortfall from the full-sample model are descriptive, not forecasts.
 
-**About 190 tickers have no price data at all**, and another 155 or so might
-carry data belonging to a different company. Both are concentrated in dead
-tickers and early years, so probably outside my window, but I did not verify
-this directly.
-
-**The stress tests are linear**, fitted on historical average behaviour. Real
-selloffs have rising correlations beyond even the stressed-beta adjustment, so
-the larger scenarios probably understate the damage.
+**The stress tests are linear**, fitted on historical behaviour. Real selloffs
+have rising correlations beyond even the stressed-beta adjustment, so the
+larger scenarios probably understate the damage.
 
 **Extreme Value Theory gives single-day probabilities only.** A sustained
 decline over months is a different thing and I did not model it.
@@ -212,43 +268,43 @@ of your money rides on one story, and what various shocks would cost you.
 python -m venv .venv
 .venv\Scripts\activate
 pip install -r requirements.txt
+python update.py
 ```
 
-The SEC requires a user-agent header with a contact email. Set yours in
-`src/07_shares.py` before running. Tiingo needs a free API key in the
-`TIINGO_API_KEY` environment variable.
+`update.py` downloads whatever is new (fund holdings, prices, SEC data), reruns
+the whole analysis, redraws the charts and updates the numbers at the top of
+this README. `python update.py --no-fetch` reruns the analysis on the data
+already downloaded. Afterwards, open the Power BI report and press Refresh.
 
-Scripts run in numerical order, with one exception: `10_merge_manual_shares.py`
-must run after `07_shares.py` and before `08_concentration.py`, because it adds
-share counts the SEC API does not provide and `07` rebuilds the table from
-scratch.
+The SEC requires a user-agent header with a contact email; it is set in
+`src/00_fetch_data.py` and `src/07_shares.py`. A Tiingo API key (in the
+`TIINGO_API_KEY` environment variable) is only needed to download Tiingo files
+that are missing.
 
-Data is not in the repository. Tiingo's licence is personal-use only, and the
-price tables are several hundred megabytes.
+Data is not in the repository: Tiingo's licence is personal-use only, and the
+price tables are several hundred megabytes. The first run of `update.py`
+downloads everything, which takes about 20 minutes.
 
 ---
 
 ## Files
 
-- `docs/writeup.md` — the full analysis, with every number and how it was
-  reached
-- `docs/limitations.md` — a running log of compromises made along the way
-- `dashboard/` — the Power BI report
-- `src/` — the pipeline
+- [`docs/audit.md`](docs/audit.md): what the audit found, and how much each problem moved the results
+- [`limitations.md`](limitations.md): a running log of compromises made along the way
+- `docs/charts/`: the charts above, redrawn on every update
+- `S&P500 AI Risk.pbix`: the Power BI report
+- `src/`, `reference/`, `update.py`, `run_all.py`: the pipeline
 
 ---
 
 ## What I would do next
 
-The most obvious gap is the pre-2009 share counts. Every filing on EDGAR has
-the number on its cover page going back to the mid-nineties, including for
-companies that no longer exist. Parsing those would extend the concentration
-history to the dot-com era and make the comparison I originally wanted
-possible.
+The dot-com era. The fund's archive starts in 2006; before that the share
+counts would have to come from the cover pages of EDGAR filings, which go back
+to the mid-nineties, including for companies that no longer exist.
 
-After that, a table restricting each ticker's prices to the periods it was
-actually in the index, which would settle the recycled-symbol question properly
-rather than leaving it bounded but unverified.
+A better VaR model, since GARCH-t fails its backtest: filtered historical
+simulation, or a model that lets the tail change with volatility.
 
 And on the modelling side, a copula to measure whether these stocks crash
 together more than correlation implies, and an equal-weighted version of every
