@@ -1,7 +1,9 @@
 """Download everything the pipeline needs. Safe to re-run: it only fetches what is missing.
 
-First run: backfills ~4,400 days of real S&P 500 holdings (about 15-20 minutes).
-Later runs: fetch only the new days, so this doubles as the update step.
+The holdings archive from November 2006 is already in data/raw/ivv_holdings.parquet
+(downloaded once, 29 Sep 2026), so a run fetches only the days since the last one, a
+fresh copy of the Yahoo prices and the SEC facts: a few minutes. On a fresh clone without
+that file it backfills all ~5,200 weekdays first (about 15-20 minutes).
 
 Run from the project folder:
     .venv\\Scripts\\python src\\00_fetch_data.py            (everything)
@@ -9,8 +11,9 @@ Run from the project folder:
 
 What it downloads and why:
   1. Index membership history (fja05680 on GitHub): cross-check of index changes.
-  2. iShares Core S&P 500 ETF (IVV) holdings for every trading day since 2009. IVV
-     fully replicates the S&P 500, so its holdings are the real index weights:
+  2. iShares Core S&P 500 ETF (IVV) holdings: month ends from November 2006, every
+     trading day from May 2012 (BlackRock has no files for January to early July 2017).
+     IVV fully replicates the S&P 500, so its holdings are the real index weights:
      every company, correct share classes, free-float adjusted. This replaces
      rebuilding weights from SEC share counts, which missed companies that changed
      ticker, re-registered, or were acquired.
@@ -32,7 +35,10 @@ import pandas as pd
 
 RAW = Path("data/raw")
 IVV_DIR = RAW / "ivv"
-START = dt.date(2009, 1, 2)
+IVV_TABLE = RAW / "ivv_holdings.parquet"
+# BlackRock's archive has month-end files from November 2006, daily files from May 2012,
+# and nothing from January to early July 2017.
+START = dt.date(2006, 11, 1)
 SEC_HEADERS = {"User-Agent": "Giorgos george.gasaniani@gmail.com"}
 IVV_URL = ("https://www.blackrock.com/varnish-api/blk-one01-product-data/product-data/api/v1/"
            "get-fund-document?appType=PRODUCT_PAGE&appSubType=ISHARES&targetSite=us-ishares"
@@ -99,9 +105,11 @@ def weekdays(a, b):
 
 
 def stored_days():
-    """Days already saved (True) or known to have no holdings (False), from the year zips.
-    A saved .csv only counts if it is a real holdings file (they are ~80 KB; BlackRock's
-    'no holdings for this date' answer is ~300 bytes)."""
+    """Days already saved (True) or known to have no holdings (False), from the year zips
+    and the holdings table. A saved .csv only counts if it is a real holdings file (they
+    are ~80 KB; BlackRock's 'no holdings for this date' answer is ~300 bytes).
+    The 2006-2026 backfill was downloaded once through a browser (29 Sep 2026) and stored
+    straight into the table, so days in the table count as saved even without a zip copy."""
     have = {}
     for z in IVV_DIR.glob("ivv_*.zip"):
         with zipfile.ZipFile(z) as f:
@@ -109,6 +117,9 @@ def stored_days():
                 key = info.filename.split(".")[0]
                 real = info.filename.endswith(".csv") and info.file_size > 5000
                 have[key] = have.get(key, False) or real
+    if IVV_TABLE.exists():
+        for d in pd.read_parquet(IVV_TABLE, columns=["date"])["date"].unique():
+            have[pd.Timestamp(d).strftime("%Y%m%d")] = True
     return have
 
 
@@ -199,7 +210,9 @@ def parse_ivv(key, text):
 
 
 def build_ivv_table():
-    """All saved days -> one compact parquet file for the pipeline."""
+    """All saved days -> one compact parquet file for the pipeline. Days downloaded into
+    the year zips are parsed; days only in the existing table (the browser backfill) are
+    kept as they are."""
     parts = []
     for z in sorted(IVV_DIR.glob("ivv_*.zip")):
         with zipfile.ZipFile(z) as f:
@@ -211,10 +224,14 @@ def build_ivv_table():
                             parts.append(df)
                     except Exception as e:
                         print(f"    could not parse {n}: {e}")
+    if IVV_TABLE.exists():
+        old = pd.read_parquet(IVV_TABLE)
+        new_days = set(pd.concat([p["date"] for p in parts]).unique()) if parts else set()
+        parts.insert(0, old[~old["date"].isin(new_days)])
     if not parts:
         return
-    h = pd.concat(parts, ignore_index=True)
-    h.to_parquet(RAW / "ivv_holdings.parquet", index=False)
+    h = pd.concat(parts, ignore_index=True).sort_values("date", kind="stable").reset_index(drop=True)
+    h.to_parquet(IVV_TABLE, index=False)
     days = h.groupby("date").size()
     print(f"  IVV table: {len(days)} days, {h.ticker_raw.nunique()} tickers, "
           f"{days.index.min().date()} to {days.index.max().date()}")
@@ -234,7 +251,15 @@ def yahoo_tickers():
     if m.exists():
         mem = pd.read_csv(m)
         t |= set(mem["tickers"].iloc[-1].split(","))
-    clean = {x.replace("*", "").strip().replace(" ", "-").replace(".", "-") for x in t if isinstance(x, str)}
+    clean = {x.replace("*", "").strip().replace(" ", "-").replace(".", "-").replace("/", "-")
+             for x in t if isinstance(x, str)}
+    # iShares and old tickers -> the ticker Yahoo uses today (BRKB -> BRK-B, BK -> BNY).
+    # Without this Yahoo is asked for names it does not know and reports them as failed.
+    a = pd.read_csv("reference/ticker_aliases.csv")
+    alias = dict(zip(a["ticker"].str.replace("/", "-", regex=False), a["price_ticker"]))
+    clean = {alias.get(x, x) for x in clean}
+    # drop cash lines ("-") and non-share lines iShares lists with a suffix (rights, "-US")
+    clean = {x for x in clean if x[:1].isalpha() and not x.endswith(("-US", "-UW"))}
     # benchmarks: the S&P 500 price index, its total-return version, and two S&P 500 funds
     return sorted(clean | {"SPY", "IVV", "^GSPC", "^SP500TR"})
 
