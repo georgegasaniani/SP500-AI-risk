@@ -40,6 +40,10 @@ def check_fetch():
     if not p.exists():
         return
     rep = json.loads(p.read_text(encoding="utf-8"))
+    bad = [rep[k] for k in ("ivv", "ivv_table") if str(rep.get(k, "")).startswith("failed")]
+    if bad:
+        sys.exit(f"STOP: the holdings download failed ({bad[0]}). "
+                 "Nothing was analysed. Paste this message to Claude.")
     for part in ("membership", "ivv", "yahoo", "sec"):
         v = rep.get(part)
         if isinstance(v, str) and "fail" in v:

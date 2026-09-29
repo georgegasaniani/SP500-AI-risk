@@ -212,24 +212,37 @@ def parse_ivv(key, text):
     return out
 
 
+def recover_ivv_table():
+    """An earlier version swapped folders and could leave only ivv_holdings_new behind.
+    If the real folder is missing, rebuild it from the leftover one."""
+    leftover = IVV_TABLE.with_name(IVV_TABLE.name + "_new")
+    if not IVV_TABLE.exists() and leftover.exists():
+        IVV_TABLE.mkdir(parents=True)
+        for f in leftover.glob("*.parquet"):
+            shutil.copy2(f, IVV_TABLE / f.name)
+        print("  restored ivv_holdings from ivv_holdings_new")
+
+
 def write_ivv_table(h):
-    """Write the table as one file per year into a new folder, then swap it in, so an
-    interrupted run never leaves a half-written table."""
-    tmp = IVV_TABLE.with_name(IVV_TABLE.name + "_new")
-    if tmp.exists():
-        shutil.rmtree(tmp)
-    tmp.mkdir(parents=True)
+    """One file per year. Each file is written under a temporary name and then put in
+    place, and the live folder is never deleted, so an interrupted run cannot lose it."""
+    IVV_TABLE.mkdir(parents=True, exist_ok=True)
+    years = set()
     for year, part in h.groupby(h["date"].dt.year):
-        part.sort_values(["ticker_raw", "date"]).to_parquet(tmp / f"{year}.parquet", index=False)
-    if IVV_TABLE.exists():
-        shutil.rmtree(IVV_TABLE)
-    tmp.rename(IVV_TABLE)
+        years.add(f"{year}.parquet")
+        tmp = IVV_TABLE / f"{year}.parquet.tmp"
+        part.sort_values(["ticker_raw", "date"]).to_parquet(tmp, index=False)
+        tmp.replace(IVV_TABLE / f"{year}.parquet")
+    for f in IVV_TABLE.glob("*.parquet"):
+        if f.name not in years:
+            f.unlink()
 
 
 def build_ivv_table():
     """All saved days -> one compact parquet file for the pipeline. Days downloaded into
     the year zips are parsed; days only in the existing table (the browser backfill) are
     kept as they are."""
+    recover_ivv_table()
     parts = []
     for z in sorted(IVV_DIR.glob("ivv_*.zip")):
         with zipfile.ZipFile(z) as f:
