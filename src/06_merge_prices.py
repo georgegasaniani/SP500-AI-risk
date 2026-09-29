@@ -107,12 +107,36 @@ held_rows = held_rows.rename(columns={"price": "close_raw"})
 # betas since 2015 for today's members, three-year covariance windows at past month ends.
 # Use the source that matched the fund's prices most often while the company was held
 # (for a renamed company that is its successor's history, e.g. FB -> META).
-pick = (held_rows[held_rows["source"] != "ivv"].groupby(["ticker", "price_ticker", "source"])
-        .size().reset_index(name="n").sort_values("n").drop_duplicates("ticker", keep="last"))
-out = (pick.merge(ext.rename(columns={"ticker": "price_ticker"}), on=["price_ticker", "source"])
-           [["date", "ticker", "close_raw", "ret", "source", "price_ticker"]])
+#
+# Fallback (added after the full rebuild showed it): the fresh Yahoo download starts in
+# 2009, so for today's companies the preferred source has nothing earlier, and before
+# May 2012 the fund's files are month-end only. Between those month ends only ~10% of
+# the index had a daily return, so the bridged weights drifted with a tenth of the
+# market. Each day without a return from the preferred source now takes one from
+# another source that AGREED with the fund's recorded price for this company, and only
+# within 45 days of the dates it agreed on (a reused ticker never agrees during the old
+# company's time, so it cannot fill it). Returns still come from inside one source.
+agree = (held.merge(cands, on="ticker")
+             .merge(ext[["date", "ticker", "close_raw", "source"]].rename(columns={"ticker": "price_ticker"}),
+                    on=["price_ticker", "date"]))
+agree = agree[(agree["close_raw"] / agree["price"] - 1).abs() < 0.03]
+combos = (agree.groupby(["ticker", "price_ticker", "source"])["date"]
+               .agg(n="size", first="min", last="max").reset_index())
+combos = combos.sort_values(["ticker", "n"], ascending=[True, False])
+combos["rank"] = combos.groupby("ticker").cumcount()
+pad = pd.Timedelta(days=45)
+cand_rows = (combos.merge(ext.rename(columns={"ticker": "price_ticker"}), on=["price_ticker", "source"])
+                   [["date", "ticker", "close_raw", "ret", "source", "price_ticker", "rank", "first", "last"]])
+# the most-matched source everywhere (as before); the others only near where they agreed
+cand_rows = cand_rows[(cand_rows["rank"] == 0) |
+                      ((cand_rows["date"] >= cand_rows["first"] - pad) & (cand_rows["date"] <= cand_rows["last"] + pad))]
+cand_rows = cand_rows.assign(has=cand_rows["ret"].notna()).sort_values(
+    ["ticker", "date", "has", "rank"], ascending=[True, True, False, True])
+out = cand_rows.drop_duplicates(["ticker", "date"])[["date", "ticker", "close_raw", "ret", "source", "price_ticker"]]
 out = out.merge(held_rows[["date", "ticker"]], on=["date", "ticker"], how="left", indicator=True)
 out = out[out["_merge"] == "left_only"].drop(columns="_merge")
+filled = (out["source"] != out["ticker"].map(combos[combos["rank"] == 0].set_index("ticker")["source"])).sum()
+print(f"days outside the fund's files taking a return from a second agreeing source: {filled:,}")
 
 # Benchmarks: the S&P 500 price index, its total-return version, and two S&P 500 funds
 BENCH = ["^GSPC", "^SP500TR", "SPY", "IVV"]

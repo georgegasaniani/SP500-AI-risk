@@ -5,6 +5,7 @@
   risk_vs_weight.png  top 10: share of index risk vs share of index weight, month by month
   ai_group.png        the AI group: share of weight and share of risk, month by month
 """
+import textwrap
 from pathlib import Path
 
 import duckdb
@@ -29,8 +30,9 @@ plt.rcParams.update({"font.size": 10, "axes.spines.top": False, "axes.spines.rig
 def finish(fig, ax, name, note):
     ax.xaxis.set_major_locator(mdates.YearLocator(2))
     ax.xaxis.set_major_formatter(mdates.DateFormatter("%Y"))
-    fig.text(0.01, 0.01, note, fontsize=8, color="#666666", ha="left", va="bottom")
-    fig.tight_layout(rect=(0, 0.04, 1, 1))
+    lines = textwrap.wrap(note, 125)
+    fig.text(0.01, 0.01, "\n".join(lines), fontsize=8, color="#666666", ha="left", va="bottom")
+    fig.tight_layout(rect=(0, 0.035 * len(lines) + 0.01, 1, 1))
     fig.savefig(OUT / name, dpi=150)
     plt.close(fig)
 
@@ -62,6 +64,11 @@ finish(fig, a2, "concentration.png",
 # ------------------------------------------------ rolling risk vs weight
 roll = con.sql("SELECT * FROM rolling_risk WHERE window_days = 252 ORDER BY date").df()
 roll["date"] = pd.to_datetime(roll["date"])
+# Start once almost every holding has a full year of returns: in 2012-13 about 16% of the
+# weight had not (companies later delisted, with no price source), which distorts the shares.
+if "weight_left_out" in roll.columns:
+    first_ok = roll.loc[roll["weight_left_out"] < 0.05, "date"].min()
+    roll = roll[roll["date"] >= first_ok].reset_index(drop=True)
 
 
 def risk_chart(wcol, rcol, title, name, colour, note=""):
@@ -78,7 +85,7 @@ def risk_chart(wcol, rcol, title, name, colour, note=""):
         ax.annotate(f"{r[col]:.0%}", (r.date, r[col]), xytext=(6, 0), textcoords="offset points",
                     va="center", color=c, fontweight="bold")
     finish(fig, ax, name, note + "Month ends; Euler risk shares from the previous 252 trading days' returns "
-                                 "and that day's real weights.")
+                                 "and that day's real weights. Starts when under 5% of the weight lacks a full year of returns.")
 
 
 risk_chart("top10_weight", "top10_risk", "Ten largest holdings: share of risk vs share of weight",

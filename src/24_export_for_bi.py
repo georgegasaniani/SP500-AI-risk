@@ -14,11 +14,15 @@ con.sql("""
 
 # The rebuilt index against the real one, year by year (11_validate_spy.py)
 con.sql("""
-    WITH r AS (SELECT year(date) AS year, EXP(SUM(LN(1 + ret))) - 1 AS rebuilt FROM index_rebuilt GROUP BY 1),
-         o AS (SELECT year(date) AS year, EXP(SUM(LN(1 + ret))) - 1 AS official, ANY_VALUE(method) AS series
-               FROM index_returns GROUP BY 1)
-    SELECT year, series, official, rebuilt, rebuilt - official AS difference
-    FROM o JOIN r USING (year) ORDER BY year
+    -- only the days both series have (the official series starts a day later than the
+    -- rebuilt one, which once put an extra day into 2009's comparison)
+    WITH j AS (SELECT year(o.date) AS year, o.ret AS o_ret, r.ret AS r_ret, o.method, r.coverage
+               FROM index_returns o JOIN index_rebuilt r ON CAST(r.date AS DATE) = CAST(o.date AS DATE))
+    SELECT year, ANY_VALUE(method) AS series, EXP(SUM(LN(1 + o_ret))) - 1 AS official,
+           EXP(SUM(LN(1 + r_ret))) - 1 AS rebuilt,
+           (EXP(SUM(LN(1 + r_ret))) - 1) - (EXP(SUM(LN(1 + o_ret))) - 1) AS difference,
+           AVG(coverage) AS weight_with_return
+    FROM j GROUP BY 1 ORDER BY 1
 """).df().to_csv(out / "index_check.csv", index=False)
 
 
