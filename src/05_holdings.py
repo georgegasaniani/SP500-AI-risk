@@ -4,7 +4,7 @@ IVV fully replicates the S&P 500: it holds every company in proportion to its
 free-float market cap. Its daily holdings file is therefore the index itself,
 including companies that later changed ticker, merged or were delisted.
 
-Input : data/raw/ivv_holdings.parquet   (built by 00_fetch_data.py)
+Input : data/raw/ivv_holdings/        (one file per year, built by 00_fetch_data.py)
 Output: holdings       one row per company per trading day with a file:
                        ticker, name, sector, price, quantity, market value, weight
         ivv_days       one row per day: number of companies, equity value, and the fund's
@@ -23,7 +23,7 @@ import duckdb
 import pandas as pd
 
 con = duckdb.connect("data/sp500.duckdb")
-raw = pd.read_parquet("data/raw/ivv_holdings.parquet")
+raw = pd.read_parquet("data/raw/ivv_holdings")
 print(f"raw: {len(raw):,} rows, {raw['date'].nunique()} days")
 
 # 1. Clean tickers. iShares writes Berkshire as "BRKB" or "BRK B", Brown-Forman as

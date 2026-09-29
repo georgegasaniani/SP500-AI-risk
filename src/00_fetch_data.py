@@ -1,6 +1,6 @@
 """Download everything the pipeline needs. Safe to re-run: it only fetches what is missing.
 
-The holdings archive from November 2006 is already in data/raw/ivv_holdings.parquet
+The holdings archive from November 2006 is already in data/raw/ivv_holdings/ (one file per year)
 (downloaded once, 29 Sep 2026), so a run fetches only the days since the last one, a
 fresh copy of the Yahoo prices and the SEC facts: a few minutes. On a fresh clone without
 that file it backfills all ~5,200 weekdays first (about 15-20 minutes).
@@ -26,6 +26,7 @@ import argparse
 import datetime as dt
 import io
 import json
+import shutil
 import time
 import zipfile
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -35,7 +36,9 @@ import pandas as pd
 
 RAW = Path("data/raw")
 IVV_DIR = RAW / "ivv"
-IVV_TABLE = RAW / "ivv_holdings.parquet"
+# One parquet file per year in a folder: small files are quick to rewrite and to copy.
+# pandas reads the whole folder as one table.
+IVV_TABLE = RAW / "ivv_holdings"
 # BlackRock's archive has month-end files from November 2006, daily files from May 2012,
 # and nothing from January to early July 2017.
 START = dt.date(2006, 11, 1)
@@ -209,6 +212,20 @@ def parse_ivv(key, text):
     return out
 
 
+def write_ivv_table(h):
+    """Write the table as one file per year into a new folder, then swap it in, so an
+    interrupted run never leaves a half-written table."""
+    tmp = IVV_TABLE.with_name(IVV_TABLE.name + "_new")
+    if tmp.exists():
+        shutil.rmtree(tmp)
+    tmp.mkdir(parents=True)
+    for year, part in h.groupby(h["date"].dt.year):
+        part.sort_values(["ticker_raw", "date"]).to_parquet(tmp / f"{year}.parquet", index=False)
+    if IVV_TABLE.exists():
+        shutil.rmtree(IVV_TABLE)
+    tmp.rename(IVV_TABLE)
+
+
 def build_ivv_table():
     """All saved days -> one compact parquet file for the pipeline. Days downloaded into
     the year zips are parsed; days only in the existing table (the browser backfill) are
@@ -231,7 +248,7 @@ def build_ivv_table():
     if not parts:
         return
     h = pd.concat(parts, ignore_index=True).sort_values("date", kind="stable").reset_index(drop=True)
-    h.to_parquet(IVV_TABLE, index=False)
+    write_ivv_table(h)
     days = h.groupby("date").size()
     print(f"  IVV table: {len(days)} days, {h.ticker_raw.nunique()} tickers, "
           f"{days.index.min().date()} to {days.index.max().date()}")
@@ -242,7 +259,7 @@ def build_ivv_table():
 # ---------------------------------------------------------------- 3. Yahoo prices
 def yahoo_tickers():
     t = set()
-    p = RAW / "ivv_holdings.parquet"
+    p = IVV_TABLE
     if p.exists():
         h = pd.read_parquet(p, columns=["date", "ticker_raw"])
         last = h["date"].max()
