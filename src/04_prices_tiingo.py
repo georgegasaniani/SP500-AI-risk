@@ -12,11 +12,20 @@ out=Path("data/raw/tiingo")
 out.mkdir(parents=True,exist_ok=True)
 print(len(tickers),"tickers to download")
 
+# Tickers Tiingo answered with no data are remembered, so later runs do not ask again
+# (each request costs a 72-second wait on the free tier). Delete the file to retry them.
+NO_DATA = out / "no_data.csv"
+known_no_data = set(pd.read_csv(NO_DATA)["ticker"]) if NO_DATA.exists() else set()
+no_data = []
+
 
 failed = []
 for n, t in enumerate(tickers,1):
     path = out / f"{t}.parquet"
     if path.exists():
+        continue
+    if t in known_no_data:
+        failed.append(t)
         continue
     if not TOKEN:
         failed.append(t)
@@ -28,6 +37,8 @@ for n, t in enumerate(tickers,1):
         break
     if r.status_code !=200 or not r.json():
         failed.append(t)
+        if r.status_code in (200, 404):
+            no_data.append(t)
         print(f"{n}/{len(tickers)} {t}: no data ({r.status_code})")
         time.sleep(72)
         continue
@@ -37,6 +48,9 @@ for n, t in enumerate(tickers,1):
     print(f"{n}/{len(tickers)} {t}: {len(df)} rows, {df['date'].min()[:10]} to {df['date'].max()[:10]}")
     time.sleep(72)
 
+
+if no_data:
+    pd.Series(sorted(known_no_data | set(no_data)), name="ticker").to_csv(NO_DATA, index=False)
 
 con = duckdb.connect("data/sp500.duckdb")
 con.execute("""
